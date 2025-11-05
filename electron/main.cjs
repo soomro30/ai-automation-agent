@@ -91,11 +91,11 @@ function ensureEnvFile() {
     // Load credentials from local file (not committed to git)
     let credentials;
 
-    // Try multiple paths for credentials.js (development vs production)
+    // Try multiple paths for credentials.cjs (development vs production)
     const possiblePaths = [
-      path.join(__dirname, 'credentials.js'),
-      path.join(process.cwd(), 'electron', 'credentials.js'),
-      path.join(app.getAppPath(), 'electron', 'credentials.js'),
+      path.join(__dirname, 'credentials.cjs'),
+      path.join(process.cwd(), 'electron', 'credentials.cjs'),
+      path.join(app.getAppPath(), 'electron', 'credentials.cjs'),
     ];
 
     let credentialsPath = null;
@@ -111,18 +111,18 @@ function ensureEnvFile() {
         // Clear require cache to ensure fresh load
         delete require.cache[credentialsPath];
         credentials = require(credentialsPath);
-        console.log('✓ Loaded credentials from credentials.js');
+        console.log('✓ Loaded credentials from credentials.cjs');
         console.log(`   Path: ${credentialsPath}`);
       } catch (error) {
-        console.warn('⚠️  Error loading credentials.js, using placeholders');
+        console.warn('⚠️  Error loading credentials.cjs, using placeholders');
         console.warn(`   Path: ${credentialsPath}`);
         console.warn(`   Error: ${error.message}`);
         credentials = null;
       }
     } else {
-      console.warn('⚠️  credentials.js not found in any expected location');
+      console.warn('⚠️  credentials.cjs not found in any expected location');
       console.warn('   Tried paths:', possiblePaths);
-      console.warn('   Copy credentials.example.js to credentials.js and add your API keys');
+      console.warn('   Copy credentials.example.cjs to credentials.cjs and add your API keys');
     }
 
     // Use placeholders if credentials not loaded

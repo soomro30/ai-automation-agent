@@ -2,9 +2,9 @@
  * API Credentials Template
  *
  * INSTRUCTIONS:
- * 1. Copy this file to: credentials.js
+ * 1. Copy this file to: credentials.cjs
  * 2. Replace the placeholder values with your real API keys
- * 3. DO NOT commit credentials.js to git
+ * 3. DO NOT commit credentials.cjs to git
  */
 
 module.exports = {
