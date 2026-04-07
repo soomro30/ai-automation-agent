@@ -22,6 +22,7 @@ export interface DariAffectionPlanConfig {
   emailNotification: {
     enabled: boolean;
     recipientEmail: string;
+    ccEmail: string;
   };
 
   waitTimes: {
@@ -47,7 +48,7 @@ export const defaultDariAffectionPlanConfig: DariAffectionPlanConfig = {
 
   navigation: {
     servicesMenuText: 'Services',
-    affectionPlanServiceText: 'Site Plan',
+    affectionPlanServiceText: 'Verification Certificate (Unit)',
   },
 
   accountSwitching: {
@@ -58,6 +59,7 @@ export const defaultDariAffectionPlanConfig: DariAffectionPlanConfig = {
   emailNotification: {
     enabled: false, // Set to true to enable email notifications
     recipientEmail: '', // Email address to receive summary reports
+    ccEmail: '', // CC email address (optional)
   },
 
   waitTimes: {
@@ -90,5 +92,25 @@ export function createDariAffectionPlanConfig(
   return {
     ...defaultDariAffectionPlanConfig,
     ...overrides,
+    navigation: {
+      ...defaultDariAffectionPlanConfig.navigation,
+      ...(overrides.navigation || {}),
+    },
+    accountSwitching: {
+      ...defaultDariAffectionPlanConfig.accountSwitching,
+      ...(overrides.accountSwitching || {}),
+    },
+    emailNotification: {
+      ...defaultDariAffectionPlanConfig.emailNotification,
+      ...(overrides.emailNotification || {}),
+    },
+    waitTimes: {
+      ...defaultDariAffectionPlanConfig.waitTimes,
+      ...(overrides.waitTimes || {}),
+    },
+    detection: {
+      ...defaultDariAffectionPlanConfig.detection,
+      ...(overrides.detection || {}),
+    },
   };
 }

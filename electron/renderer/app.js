@@ -51,6 +51,7 @@ function setupEventListeners() {
 
   document.getElementById('enableEmailNotification').addEventListener('change', (e) => {
     document.getElementById('recipientEmail').disabled = !e.target.checked;
+    document.getElementById('ccEmail').disabled = !e.target.checked;
   });
 
   window.electronAPI.onAgentOutput((data) => {
@@ -84,44 +85,34 @@ function showView(viewName) {
 
 function selectAgent(agentId) {
   currentAgent = agentId;
-  const isAffectionPlan = agentId === 'dari-affection-plan';
-
-  let title = 'Configure Dari Title Deed Agent';
-  if (isAffectionPlan) {
-    title = 'Configure Dari Affection Plan Agent';
-  }
-  document.getElementById('agentTitle').textContent = title;
-
-  document.getElementById('accountSwitchingSection').classList.toggle('hidden', !isAffectionPlan);
-  document.getElementById('serviceConfigSection').classList.toggle('hidden', !isAffectionPlan);
-  document.getElementById('emailNotificationSection').classList.toggle('hidden', !isAffectionPlan);
-  document.getElementById('downloadTimeoutSection').classList.toggle('hidden', !isAffectionPlan);
+  document.getElementById('agentTitle').textContent = 'Configure Dari Affection Plan Agent';
+  document.getElementById('accountSwitchingSection').classList.remove('hidden');
+  document.getElementById('serviceConfigSection').classList.remove('hidden');
+  document.getElementById('emailNotificationSection').classList.remove('hidden');
+  document.getElementById('downloadTimeoutSection').classList.remove('hidden');
 
   loadAgentSettings(agentId);
   showView('config');
 }
 
 function loadAgentSettings(agentId) {
-  let agentSettings;
-  if (agentId === 'dari-affection-plan') {
-    agentSettings = settings.affectionPlan || {};
-  } else {
-    agentSettings = settings.titleDeed || {};
-  }
+  const agentSettings = settings.affectionPlan || {};
+  const configuredServiceName = agentSettings.serviceName && agentSettings.serviceName !== 'Site Plan'
+    ? agentSettings.serviceName
+    : 'Verification Certificate (Unit)';
 
   document.getElementById('mobileNumber').value = settings.general?.mobileNumber || '+971559419961';
   document.getElementById('plotColumn').value = agentSettings.plotColumnIndex || 2;
-
-  if (agentId === 'dari-affection-plan') {
-    document.getElementById('serviceName').value = agentSettings.serviceName || 'Verification Certificate (Unit)';
-    document.getElementById('enableAccountSwitch').checked = agentSettings.accountSwitching?.enabled || false;
-    document.getElementById('accountName').value = agentSettings.accountSwitching?.targetAccountName || '';
-    document.getElementById('accountName').disabled = !agentSettings.accountSwitching?.enabled;
-    document.getElementById('enableEmailNotification').checked = agentSettings.emailNotification?.enabled || false;
-    document.getElementById('recipientEmail').value = agentSettings.emailNotification?.recipientEmail || '';
-    document.getElementById('recipientEmail').disabled = !agentSettings.emailNotification?.enabled;
-    document.getElementById('downloadTimeout').value = (agentSettings.waitTimes?.downloadPageTimeout || 900000) / 1000;
-  }
+  document.getElementById('serviceName').value = configuredServiceName;
+  document.getElementById('enableAccountSwitch').checked = agentSettings.accountSwitching?.enabled || false;
+  document.getElementById('accountName').value = agentSettings.accountSwitching?.targetAccountName || '';
+  document.getElementById('accountName').disabled = !agentSettings.accountSwitching?.enabled;
+  document.getElementById('enableEmailNotification').checked = agentSettings.emailNotification?.enabled || false;
+  document.getElementById('recipientEmail').value = agentSettings.emailNotification?.recipientEmail || '';
+  document.getElementById('ccEmail').value = agentSettings.emailNotification?.ccEmail || '';
+  document.getElementById('recipientEmail').disabled = !agentSettings.emailNotification?.enabled;
+  document.getElementById('ccEmail').disabled = !agentSettings.emailNotification?.enabled;
+  document.getElementById('downloadTimeout').value = (agentSettings.waitTimes?.downloadPageTimeout || 900000) / 1000;
 
   document.getElementById('captchaTimeout').value = (agentSettings.waitTimes?.captcha || 10000) / 1000;
   document.getElementById('uaePassTimeout').value = (agentSettings.waitTimes?.uaePassTimeout || 180000) / 1000;
@@ -200,40 +191,28 @@ async function runAgent() {
     },
   };
 
-  if (currentAgent === 'dari-affection-plan') {
-    agentSettings.serviceName = document.getElementById('serviceName').value.trim();
-    agentSettings.accountSwitching = {
-      enabled: document.getElementById('enableAccountSwitch').checked,
-      targetAccountName: document.getElementById('accountName').value,
-    };
-    agentSettings.emailNotification = {
-      enabled: document.getElementById('enableEmailNotification').checked,
-      recipientEmail: document.getElementById('recipientEmail').value.trim(),
-    };
-    agentSettings.waitTimes.downloadPageTimeout = parseInt(document.getElementById('downloadTimeout').value) * 1000;
+  agentSettings.serviceName = document.getElementById('serviceName').value.trim();
+  agentSettings.accountSwitching = {
+    enabled: document.getElementById('enableAccountSwitch').checked,
+    targetAccountName: document.getElementById('accountName').value,
+  };
+  agentSettings.emailNotification = {
+    enabled: document.getElementById('enableEmailNotification').checked,
+    recipientEmail: document.getElementById('recipientEmail').value.trim(),
+    ccEmail: document.getElementById('ccEmail').value.trim(),
+  };
+  agentSettings.waitTimes.downloadPageTimeout = parseInt(document.getElementById('downloadTimeout').value) * 1000;
 
-    if (!settings.affectionPlan) {
-      settings.affectionPlan = {};
-    }
-    settings.affectionPlan = { ...settings.affectionPlan, ...agentSettings };
-  } else {
-    if (!settings.titleDeed) {
-      settings.titleDeed = {};
-    }
-    settings.titleDeed = { ...settings.titleDeed, ...agentSettings };
+  if (!settings.affectionPlan) {
+    settings.affectionPlan = {};
   }
+  settings.affectionPlan = { ...settings.affectionPlan, ...agentSettings };
 
   await window.electronAPI.saveSettings(settings);
 
   showView('running');
-
-  let runningTitle = 'Dari Title Deed Agent Running...';
-  let agentFolder = 'TitleDeeds';
-
-  if (currentAgent === 'dari-affection-plan') {
-    runningTitle = 'Dari Affection Plan Agent Running...';
-    agentFolder = 'AffectionPlans';
-  }
+  const runningTitle = 'Dari Affection Plan Agent Running...';
+  const agentFolder = 'AffectionPlans';
 
   document.getElementById('runningAgentTitle').textContent = runningTitle;
 

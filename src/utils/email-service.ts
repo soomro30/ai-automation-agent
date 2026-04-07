@@ -40,11 +40,15 @@ export interface EmailSummary {
  */
 export async function sendEmailNotification(
   recipientEmail: string,
-  summary: EmailSummary
+  summary: EmailSummary,
+  ccEmail?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     console.log('\n📧 Preparing to send email notification...');
     console.log(`   Recipient: ${recipientEmail}`);
+    if (ccEmail) {
+      console.log(`   CC: ${ccEmail}`);
+    }
 
     // Create transporter
     const transporter = nodemailer.createTransport(SMTP_CONFIG);
@@ -65,6 +69,7 @@ export async function sendEmailNotification(
         address: 'adibc.notifications@imkan.ae',
       },
       to: recipientEmail,
+      cc: ccEmail || undefined,
       subject: `${summary.agentName} - Automation Summary Report`,
       text: textContent,
       html: htmlContent,

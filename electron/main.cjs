@@ -182,6 +182,7 @@ function loadOrCreateSettings() {
         emailNotification: {
           enabled: false,
           recipientEmail: '',
+          ccEmail: '',
         },
         waitTimes: {
           captcha: 20000,

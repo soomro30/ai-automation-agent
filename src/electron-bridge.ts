@@ -18,6 +18,7 @@ export interface ElectronAgentConfig {
   emailNotification?: {
     enabled: boolean;
     recipientEmail: string;
+    ccEmail: string;
   };
   waitTimes: {
     captcha: number;
