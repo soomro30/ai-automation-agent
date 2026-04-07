@@ -9,7 +9,7 @@ import { sendEmailNotification, type EmailSummary } from '../utils/email-service
 import { getStagehandLocalBrowserConfig } from '../utils/local-browser.js';
 import XLSX from 'xlsx';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 
 /**
  * Helper function to add delays
@@ -2885,7 +2885,7 @@ export class DariAffectionPlanAgent {
   }
 
   getExcelFilePath(): string {
-    if (this.config.excelFilePath.startsWith('/') || this.config.excelFilePath.match(/^[A-Z]:\\\\/i)) {
+    if (isAbsolute(this.config.excelFilePath)) {
       return this.config.excelFilePath;
     }
     return join(process.cwd(), this.config.excelFilePath);
