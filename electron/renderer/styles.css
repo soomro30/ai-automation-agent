@@ -435,6 +435,12 @@ h2 {
   font-size: 0.8125rem;
 }
 
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .console-content {
   padding: 1rem;
   max-height: 400px;
@@ -443,6 +449,31 @@ h2 {
   font-size: 0.8125rem;
   color: #e2e8f0;
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  margin: 0;
+}
+
+.console-content::selection {
+  background: rgba(96, 165, 250, 0.35);
+}
+
+.status-indicator.status-success {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.status-indicator.status-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.status-indicator.status-error .spinner,
+.status-indicator.status-success .spinner {
+  display: none;
 }
 
 .download-info {

@@ -1,6 +1,7 @@
 let currentAgent = null;
 let selectedFile = null;
 let settings = {};
+let consoleLogBuffer = [];
 
 const views = {
   selection: document.getElementById('agentSelectionView'),
@@ -34,11 +35,13 @@ function setupEventListeners() {
   document.getElementById('stopAgentBtn').addEventListener('click', stopAgent);
   document.getElementById('openDownloadsBtn').addEventListener('click', openDownloads);
   document.getElementById('openDownloadsFolderBtn').addEventListener('click', openDownloads);
+  document.getElementById('copyFinishedLogsBtn').addEventListener('click', copyConsoleLogs);
   document.getElementById('runAnotherBtn').addEventListener('click', () => {
     showView('selection');
     resetConfig();
   });
   document.getElementById('clearConsoleBtn').addEventListener('click', clearConsole);
+  document.getElementById('copyConsoleBtn').addEventListener('click', copyConsoleLogs);
 
   document.getElementById('advancedToggle').addEventListener('click', () => {
     const advancedSection = document.getElementById('advancedSettings');
@@ -64,6 +67,7 @@ function setupEventListeners() {
 
   window.electronAPI.onAgentFinished((data) => {
     if (data.success && data.code === 0) {
+      setRunningStatus('success', 'Agent completed successfully. Logs are preserved below.');
       showView('finished');
       if (data.downloadPath) {
         const pathElement = document.getElementById('downloadPath');
@@ -72,8 +76,9 @@ function setupEventListeners() {
         }
       }
     } else {
+      setRunningStatus('error', `Agent failed with exit code ${data.code}. Logs are preserved below for copying.`);
       alert(`Agent failed with exit code ${data.code}. Check console output for details.`);
-      showView('config');
+      showView('running');
     }
   });
 }
@@ -211,6 +216,7 @@ async function runAgent() {
   await window.electronAPI.saveSettings(settings);
 
   showView('running');
+  setRunningStatus('running', 'Agent is processing your request...');
   const runningTitle = 'Dari Affection Plan Agent Running...';
   const agentFolder = 'AffectionPlans';
 
@@ -228,8 +234,10 @@ async function runAgent() {
   const result = await window.electronAPI.runAgent(currentAgent, selectedFile);
 
   if (!result.success) {
+    setRunningStatus('error', `Agent could not start: ${result.error}`);
+    appendConsoleOutput(`Fatal startup error: ${result.error}`, 'error');
     alert(`Error: ${result.error}`);
-    showView('config');
+    showView('running');
   }
 }
 
@@ -246,16 +254,58 @@ function openDownloads() {
 }
 
 function appendConsoleOutput(text, type = 'info') {
-  const console = document.getElementById('consoleOutput');
-  const line = document.createElement('div');
-  line.textContent = text;
-  line.style.color = type === 'error' ? '#fca5a5' : '#e2e8f0';
-  console.appendChild(line);
-  console.scrollTop = console.scrollHeight;
+  const consoleElement = document.getElementById('consoleOutput');
+  const normalizedText = typeof text === 'string' ? text : String(text);
+  consoleLogBuffer.push({ text: normalizedText, type });
+
+  const line = normalizedText.endsWith('\n') ? normalizedText : `${normalizedText}\n`;
+  consoleElement.textContent += line;
+  consoleElement.scrollTop = consoleElement.scrollHeight;
 }
 
 function clearConsole() {
-  document.getElementById('consoleOutput').innerHTML = '';
+  consoleLogBuffer = [];
+  document.getElementById('consoleOutput').textContent = '';
+}
+
+async function copyConsoleLogs(event) {
+  const copyButton = event?.currentTarget || document.getElementById('copyConsoleBtn');
+  const logText = consoleLogBuffer.map((entry) => entry.text).join('\n');
+
+  if (!logText.trim()) {
+    alert('There are no logs to copy yet.');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(logText);
+    const originalLabel = copyButton.textContent;
+    copyButton.textContent = 'Copied';
+    setTimeout(() => {
+      copyButton.textContent = originalLabel;
+    }, 1500);
+  } catch (error) {
+    alert(`Unable to copy logs automatically. You can still select and copy them manually.\n\n${error}`);
+  }
+}
+
+function setRunningStatus(status, message) {
+  const indicator = document.getElementById('statusIndicator');
+  const spinner = document.getElementById('statusSpinner');
+  const statusText = document.getElementById('statusText');
+  const stopButton = document.getElementById('stopAgentBtn');
+
+  indicator.classList.remove('status-running', 'status-success', 'status-error');
+  indicator.classList.add(`status-${status}`);
+  statusText.textContent = message;
+
+  if (status === 'running') {
+    spinner.classList.remove('hidden');
+    stopButton.disabled = false;
+  } else {
+    spinner.classList.add('hidden');
+    stopButton.disabled = true;
+  }
 }
 
 function resetConfig() {

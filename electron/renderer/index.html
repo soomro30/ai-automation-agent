@@ -180,17 +180,20 @@
         </div>
 
         <div class="running-content">
-          <div class="status-indicator">
-            <div class="spinner"></div>
-            <span>Agent is processing your request...</span>
+          <div class="status-indicator" id="statusIndicator">
+            <div class="spinner" id="statusSpinner"></div>
+            <span id="statusText">Agent is processing your request...</span>
           </div>
 
           <div class="output-console">
             <div class="console-header">
               <span>Console Output</span>
-              <button class="btn-text btn-small" id="clearConsoleBtn">Clear</button>
+              <div class="console-actions">
+                <button class="btn-text btn-small" id="copyConsoleBtn">Copy Logs</button>
+                <button class="btn-text btn-small" id="clearConsoleBtn">Clear</button>
+              </div>
             </div>
-            <div class="console-content" id="consoleOutput"></div>
+            <pre class="console-content" id="consoleOutput"></pre>
           </div>
 
           <div class="download-info hidden" id="downloadInfo">
@@ -219,6 +222,7 @@
               </svg>
               Open Downloads Folder
             </button>
+            <button class="btn-secondary" id="copyFinishedLogsBtn">Copy Last Run Logs</button>
             <button class="btn-secondary" id="runAnotherBtn">Run Another Agent</button>
           </div>
         </div>
