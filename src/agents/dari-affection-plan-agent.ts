@@ -1531,11 +1531,13 @@ export class DariAffectionPlanAgent {
 
   private async getPostProceedPaymentPageState(plotNumber: string): Promise<{
     ready: boolean;
+    coreReady: boolean;
     hasPayWith: boolean;
     hasPaymentDetails: boolean;
     hasPayNow: boolean;
     hasApplicationId: boolean;
     hasPlotDetails: boolean;
+    hasAnyPlotMention: boolean;
     hasWalletOption: boolean;
     hasCardOption: boolean;
     loadingLike: boolean;
@@ -1553,9 +1555,12 @@ export class DariAffectionPlanAgent {
       const hasPaymentDetails = lower.includes('payment details');
       const hasPayNow = lower.includes('pay now');
       const hasApplicationId = lower.includes('application id');
+      const hasAnyPlotMention =
+        lower.includes(targetPlotNumber.toLowerCase()) ||
+        lower.includes(compactPlot.toLowerCase());
       const hasPlotDetails =
-        lower.includes('plot number') &&
-        (lower.includes(targetPlotNumber.toLowerCase()) || lower.includes(compactPlot.toLowerCase()));
+        (lower.includes('plot number') || lower.includes('plot no') || lower.includes('plot #')) &&
+        hasAnyPlotMention;
       const hasWalletOption = lower.includes('dari wallet');
       const hasCardOption = lower.includes('debit/credit card') || lower.includes('debit credit card');
       const loadingLike =
@@ -1564,21 +1569,27 @@ export class DariAffectionPlanAgent {
         lower.includes('please wait') ||
         Boolean(document.querySelector('[role="progressbar"], .spinner, .loading, .ant-spin, .loader'));
 
-      const ready =
+      const coreReady =
         hasPayWith &&
         hasPaymentDetails &&
         hasPayNow &&
         hasApplicationId &&
-        hasPlotDetails &&
         (hasWalletOption || hasCardOption);
+
+      const ready =
+        coreReady &&
+        (hasPlotDetails || hasAnyPlotMention) &&
+        !loadingLike;
 
       return {
         ready,
+        coreReady,
         hasPayWith,
         hasPaymentDetails,
         hasPayNow,
         hasApplicationId,
         hasPlotDetails,
+        hasAnyPlotMention,
         hasWalletOption,
         hasCardOption,
         loadingLike,
@@ -1593,13 +1604,14 @@ export class DariAffectionPlanAgent {
     const startTime = Date.now();
     let lastUrl = page.url();
     let lastStateSummary = '';
+    let stableCoreReadyStreak = 0;
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('⏳ WAITING FOR PAYMENT PAGE AFTER PROCEED');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`   Plot: ${plot.plotNumber}`);
     console.log(`   Max wait time: ${Math.floor(maxWaitTimeMs / 60000)} minutes`);
-    console.log('   Waiting for page with plot details on the left and Pay with / Payment details on the right\n');
+    console.log('   Waiting for the certificates payment page to stabilize before continuing\n');
 
     while ((Date.now() - startTime) < maxWaitTimeMs) {
       const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -1621,11 +1633,13 @@ export class DariAffectionPlanAgent {
       const state = await this.getPostProceedPaymentPageState(plot.plotNumber);
       lastStateSummary = JSON.stringify({
         url: currentUrl,
+        coreReady: state.coreReady,
         hasPayWith: state.hasPayWith,
         hasPaymentDetails: state.hasPaymentDetails,
         hasPayNow: state.hasPayNow,
         hasApplicationId: state.hasApplicationId,
         hasPlotDetails: state.hasPlotDetails,
+        hasAnyPlotMention: state.hasAnyPlotMention,
         hasWalletOption: state.hasWalletOption,
         hasCardOption: state.hasCardOption,
         loadingLike: state.loadingLike,
@@ -1636,6 +1650,21 @@ export class DariAffectionPlanAgent {
         console.log(`   URL: ${currentUrl}`);
         console.log(`   Found plot details, Application ID, Pay with, Payment details, and Pay now`);
         console.log(`   Time elapsed: ${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s\n`);
+        return;
+      }
+
+      const onCertificatesPaymentPage = /\/certificates-payment(?:$|[/?#])/i.test(currentUrl);
+      if (onCertificatesPaymentPage && state.coreReady && !state.loadingLike) {
+        stableCoreReadyStreak += 1;
+      } else {
+        stableCoreReadyStreak = 0;
+      }
+
+      if (stableCoreReadyStreak >= 3) {
+        console.log('⚠️  PAYMENT PAGE READY WITHOUT PLOT BLOCK');
+        console.log(`   URL: ${currentUrl}`);
+        console.log('   Core payment controls are stable, but the plot details block did not render clearly.');
+        console.log('   Proceeding to the deeper payment-page snapshot instead of waiting indefinitely.\n');
         return;
       }
 
