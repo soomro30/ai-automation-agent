@@ -1708,6 +1708,34 @@ export class DariAffectionPlanAgent {
     return genericMatch ? genericMatch[0] : null;
   }
 
+  private isCardGatewayUrl(url: string): boolean {
+    return /abudhabipay\.gov\.ae|\/adpay\//i.test(url);
+  }
+
+  private getServicesListingUrl(): string {
+    const trimmedBase = this.config.baseUrl.replace(/\/+$/, '');
+    return `${trimmedBase}/app/services`;
+  }
+
+  private isCertificateArtifact(filename: string | null | undefined): boolean {
+    if (!filename) {
+      return false;
+    }
+
+    const lower = filename.toLowerCase();
+    return (lower.includes('certificate') || lower.includes('site plan'))
+      && !lower.includes('receipt');
+  }
+
+  private isReceiptArtifact(filename: string | null | undefined): boolean {
+    if (!filename) {
+      return false;
+    }
+
+    const lower = filename.toLowerCase();
+    return lower.includes('receipt') || lower.includes('payment');
+  }
+
   private captureDownloadDirectorySnapshot(): string[] {
     if (!this.downloadPath || !existsSync(this.downloadPath)) {
       return [];
@@ -1748,8 +1776,11 @@ export class DariAffectionPlanAgent {
     plotMatched: boolean;
     walletOptionVisible: boolean;
     walletSelected: boolean;
+    walletRadioChecked: boolean;
     cardOptionVisible: boolean;
     cardSelected: boolean;
+    cardRadioChecked: boolean;
+    exclusiveWalletSelection: boolean;
     payNowVisible: boolean;
     payNowEnabled: boolean;
     balanceText: string;
@@ -1810,19 +1841,67 @@ export class DariAffectionPlanAgent {
           text.toLowerCase().includes('plot number');
       });
 
-      const findPaymentOptionRow = (container: HTMLElement | undefined, labelText: string) => {
+      const findPaymentOptionRow = (container: HTMLElement | undefined, labelText: string, disallowedText?: string) => {
         if (!container) {
           return null;
         }
 
-        return Array.from(container.querySelectorAll('label, li, article, section, div, button'))
-          .find((element) => isVisible(element) && normalize((element as HTMLElement).innerText || '').toLowerCase().includes(labelText))
-          || null;
+        const candidates = Array.from(container.querySelectorAll('label, li, article, section, div, button'))
+          .filter((element) => isVisible(element))
+          .map((element) => {
+            const text = normalize((element as HTMLElement).innerText || '').toLowerCase();
+            const rect = (element as HTMLElement).getBoundingClientRect();
+            return {
+              element,
+              text,
+              area: Math.max(1, rect.width * rect.height),
+            };
+          })
+          .filter(({ text }) => text.includes(labelText) && (!disallowedText || !text.includes(disallowedText)))
+          .sort((left, right) => left.text.length - right.text.length || left.area - right.area);
+
+        return candidates[0]?.element || null;
+      };
+
+      const findPaymentRadioInput = (container: HTMLElement | undefined, value: 'wallet' | 'card') => {
+        if (!container) {
+          return null;
+        }
+
+        if (value === 'wallet') {
+          return container.querySelector('input[type="radio"][value="wallet"], input#userRadiob, input#userRadioB') as HTMLInputElement | null;
+        }
+
+        return container.querySelector('input[type="radio"][value="card"], input#userRadioA, input#userRadioa') as HTMLInputElement | null;
+      };
+
+      const getCheckedRadioState = (element: Element | null): boolean => {
+        if (!element || !(element instanceof HTMLElement)) {
+          return false;
+        }
+
+        const directInput = element.matches('input[type="radio"], input[type="checkbox"]')
+          ? element as HTMLInputElement
+          : null;
+        if (directInput && directInput.checked) {
+          return true;
+        }
+
+        const descendantInput = element.querySelector('input[type="radio"], input[type="checkbox"]') as HTMLInputElement | null;
+        return Boolean(descendantInput?.checked);
       };
 
       const optionAppearsSelected = (element: Element | null): boolean => {
         if (!element || !(element instanceof HTMLElement)) {
           return false;
+        }
+
+        if (
+          element instanceof HTMLInputElement &&
+          /radio|checkbox/i.test(element.type) &&
+          element.checked
+        ) {
+          return true;
         }
 
         if (
@@ -1833,31 +1912,38 @@ export class DariAffectionPlanAgent {
           return true;
         }
 
-        const checkedInput = element.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
-        if (checkedInput) {
+        const ownCheckedInput = element.querySelector(':scope input[type="radio"]:checked, :scope input[type="checkbox"]:checked');
+        if (ownCheckedInput) {
           return true;
         }
 
-        let node: HTMLElement | null = element;
-        for (let depth = 0; node && depth < 4; depth += 1) {
-          if (
-            node.getAttribute('aria-checked') === 'true' ||
-            node.getAttribute('aria-selected') === 'true' ||
-            /selected|checked|active/.test(`${node.className || ''}`.toLowerCase()) ||
-            node.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked')
-          ) {
-            return true;
-          }
-          node = node.parentElement;
+        const explicitlySelectedDescendant = Array.from(element.querySelectorAll('[aria-checked="true"], [aria-selected="true"], input[type="radio"], input[type="checkbox"]'))
+          .some((node) => {
+            if (node instanceof HTMLInputElement) {
+              return node.checked;
+            }
+
+            return /selected|checked|active/.test(`${(node as HTMLElement).className || ''}`.toLowerCase())
+              || (node as HTMLElement).getAttribute('aria-checked') === 'true'
+              || (node as HTMLElement).getAttribute('aria-selected') === 'true';
+          });
+
+        if (explicitlySelectedDescendant) {
+          return true;
         }
 
         return false;
       };
 
-      const walletRow = findPaymentOptionRow(payWithPanel?.element, 'dari wallet');
-      const cardRow = findPaymentOptionRow(payWithPanel?.element, 'debit/credit card')
-        || findPaymentOptionRow(payWithPanel?.element, 'debit credit card')
+      const walletRow = findPaymentOptionRow(payWithPanel?.element, 'dari wallet', 'debit/credit card')
+        || findPaymentOptionRow(payWithPanel?.element, 'dari wallet', 'credit card')
+        || findPaymentOptionRow(payWithPanel?.element, 'dari wallet');
+      const cardRow = findPaymentOptionRow(payWithPanel?.element, 'debit/credit card', 'dari wallet')
+        || findPaymentOptionRow(payWithPanel?.element, 'debit credit card', 'dari wallet')
+        || findPaymentOptionRow(payWithPanel?.element, 'credit card', 'dari wallet')
         || findPaymentOptionRow(payWithPanel?.element, 'credit card');
+      const walletRadioInput = findPaymentRadioInput(payWithPanel?.element, 'wallet');
+      const cardRadioInput = findPaymentRadioInput(payWithPanel?.element, 'card');
 
       const payNowButton = Array.from(document.querySelectorAll('button, a, [role="button"]'))
         .find((element) => {
@@ -1897,9 +1983,12 @@ export class DariAffectionPlanAgent {
         applicationId,
         plotMatched,
         walletOptionVisible: Boolean(walletRow),
-        walletSelected: optionAppearsSelected(walletRow),
+        walletSelected: Boolean(walletRadioInput?.checked) || optionAppearsSelected(walletRow),
+        walletRadioChecked: Boolean(walletRadioInput?.checked) || getCheckedRadioState(walletRow),
         cardOptionVisible: Boolean(cardRow),
-        cardSelected: optionAppearsSelected(cardRow),
+        cardSelected: Boolean(cardRadioInput?.checked) || optionAppearsSelected(cardRow),
+        cardRadioChecked: Boolean(cardRadioInput?.checked) || getCheckedRadioState(cardRow),
+        exclusiveWalletSelection: Boolean(walletRadioInput?.checked) && !Boolean(cardRadioInput?.checked),
         payNowVisible: Boolean(payNowButton),
         payNowEnabled,
         balanceText: walletRow ? normalize((walletRow as HTMLElement).innerText || (walletRow as HTMLElement).textContent || '') : '',
@@ -1913,6 +2002,25 @@ export class DariAffectionPlanAgent {
     }, plotNumber);
   }
 
+  private async requireExclusiveDariWalletSelection(plotNumber: string, timeoutMs: number = 20000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const state = await this.getPaymentPageSnapshot(plotNumber);
+      if (state.exclusiveWalletSelection) {
+        console.log('✓ Verified DARI wallet radio button is selected and card radio button is not selected\n');
+        return;
+      }
+
+      await sleep(500);
+    }
+
+    const finalState = await this.getPaymentPageSnapshot(plotNumber);
+    throw new Error(
+      `DARI wallet radio selection verification failed. walletSelected=${finalState.walletSelected}, walletRadioChecked=${finalState.walletRadioChecked}, cardSelected=${finalState.cardSelected}, cardRadioChecked=${finalState.cardRadioChecked}, payWithPanel="${finalState.payWithPanelText}"`
+    );
+  }
+
   private async selectDariWalletPaymentMethod(plotNumber: string): Promise<void> {
     const page = this.getPage();
     const before = await this.getPaymentPageSnapshot(plotNumber);
@@ -1921,7 +2029,7 @@ export class DariAffectionPlanAgent {
       throw new Error('DARI wallet option is not visible on the payment page');
     }
 
-    if (before.walletSelected) {
+    if (before.exclusiveWalletSelection) {
       console.log('✓ DARI wallet is already selected\n');
       return;
     }
@@ -1959,36 +2067,55 @@ export class DariAffectionPlanAgent {
         return false;
       }
 
-      const option = Array.from(payWithPanel.querySelectorAll('label, li, article, section, div, button'))
-        .find((element) => isVisible(element) && normalize((element as HTMLElement).innerText || '').toLowerCase().includes('dari wallet')) as HTMLElement | undefined;
+      const walletInput = payWithPanel.querySelector('input[type="radio"][value="wallet"], input#userRadiob, input#userRadioB') as HTMLInputElement | null;
+      const cardInput = payWithPanel.querySelector('input[type="radio"][value="card"], input#userRadioA, input#userRadioa') as HTMLInputElement | null;
 
-      if (!option) {
+      if (!walletInput) {
         return false;
       }
 
-      const clickable = option.closest('label, button, [role="radio"], [role="button"]') as HTMLElement | null
-        || option.querySelector('label, button, [role="radio"], [role="button"]') as HTMLElement | null
-        || option;
+      if (walletInput.checked && !cardInput?.checked) {
+        return true;
+      }
+
+      const walletLabel = walletInput.id
+        ? payWithPanel.querySelector(`label[for="${walletInput.id}"]`) as HTMLElement | null
+        : null;
+      const walletButtonRoot = walletInput.closest('.MuiButtonBase-root, .MuiIconButton-root, [role="radio"]') as HTMLElement | null;
+      const clickable = walletLabel || walletButtonRoot || walletInput;
 
       clickable.scrollIntoView({ block: 'center', inline: 'nearest' });
-      clickable.click();
-      return true;
+
+      if (clickable instanceof HTMLInputElement) {
+        clickable.click();
+      } else {
+        clickable.click();
+      }
+
+      if (!walletInput.checked) {
+        walletInput.checked = true;
+        walletInput.dispatchEvent(new Event('input', { bubbles: true }));
+        walletInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      return walletInput.checked;
     });
 
     if (!clicked) {
       const walletLocator = await this.waitForFirstVisibleLocator([
-        () => page.locator('label').filter({ hasText: /dari wallet/i }).first(),
-        () => page.locator('[role="radio"]').filter({ hasText: /dari wallet/i }).first(),
-        () => page.locator('div, button').filter({ hasText: /dari wallet/i }).first(),
-      ], 'DARI wallet payment option', 10000);
+        () => page.locator('label[for="userRadiob"]').first(),
+        () => page.locator('input[type="radio"][value="wallet"]').first(),
+        () => page.locator('img[alt="Dariwallet"]').first(),
+        () => page.locator('label').filter({ hasText: /^DARI wallet/i }).first(),
+      ], 'DARI wallet payment radio option', 10000);
 
-      await this.clickLocator(walletLocator, 'Clicked DARI wallet payment option');
+      await this.clickLocator(walletLocator, 'Clicked DARI wallet payment radio option');
     }
 
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
       const after = await this.getPaymentPageSnapshot(plotNumber);
-      if (after.walletSelected) {
+      if (after.exclusiveWalletSelection) {
         console.log('✓ Verified DARI wallet is selected\n');
         return;
       }
@@ -1996,7 +2123,8 @@ export class DariAffectionPlanAgent {
       await sleep(750);
     }
 
-    throw new Error('DARI wallet option did not become selected after clicking it');
+    const finalState = await this.getPaymentPageSnapshot(plotNumber);
+    throw new Error(`DARI wallet option did not become exclusively selected after clicking it. walletSelected=${finalState.walletSelected}, cardSelected=${finalState.cardSelected}, payWithPanel="${finalState.payWithPanelText}"`);
   }
 
   private async clickPayNowAndWaitForProcessing(plotNumber: string): Promise<void> {
@@ -2006,6 +2134,14 @@ export class DariAffectionPlanAgent {
 
     if (!before.walletSelected) {
       throw new Error('Refusing to click Pay now because DARI wallet is not selected');
+    }
+
+    if (before.cardSelected) {
+      throw new Error('Refusing to click Pay now because Debit/credit card is still selected');
+    }
+
+    if (!before.exclusiveWalletSelection) {
+      throw new Error('Refusing to click Pay now because the DARI wallet radio button is not exclusively selected');
     }
 
     if (!before.payNowVisible || !before.payNowEnabled) {
@@ -2064,6 +2200,10 @@ export class DariAffectionPlanAgent {
     while (Date.now() < deadline) {
       const currentUrl = page.url();
       const state = await this.getPaymentPageSnapshot(plotNumber);
+
+      if (this.isCardGatewayUrl(currentUrl)) {
+        throw new Error(`Wrong payment method detected: redirected to Abu Dhabi Pay card gateway (${currentUrl}) instead of paying with DARI wallet`);
+      }
 
       if (currentUrl !== beforeUrl || state.processingLike || !state.payNowVisible || !state.payNowEnabled) {
         console.log('✓ Payment processing started\n');
@@ -2200,12 +2340,12 @@ export class DariAffectionPlanAgent {
     throw new Error(`Timed out waiting for the final certificate download page. Last state: ${lastStateSummary}`);
   }
 
-  private async clickCertificateDownloadAndVerify(): Promise<{ success: boolean; filename: string | null }> {
+  private async clickCertificateDownloadAndVerify(): Promise<{ success: boolean; filename: string | null; kind: 'certificate' | 'receipt' | null }> {
     const page = this.getPage();
     const beforeSnapshot = this.captureDownloadDirectorySnapshot();
 
     const downloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-    let clicked = await page.evaluate(() => {
+    const clickedKind = await page.evaluate(() => {
       const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
       const isVisible = (element: Element | null): element is HTMLElement => {
         if (!(element instanceof HTMLElement)) {
@@ -2224,51 +2364,84 @@ export class DariAffectionPlanAgent {
         .filter((element) => isVisible(element))
         .map((element) => ({
           element: element as HTMLElement,
-          text: normalize((element as HTMLElement).innerText || (element as HTMLElement).textContent || ''),
+          text: normalize((element as HTMLElement).innerText || (element as HTMLElement).textContent || '').toLowerCase(),
         }))
-        .filter(({ text }) => /download/i.test(text))
-        .sort((left, right) => left.text.length - right.text.length);
+        .filter(({ text }) => text.includes('download'));
 
-      const target = candidates[0]?.element;
-      if (!target) {
-        return false;
+      const certificateTarget = candidates.find(({ text }) => text.includes('download certificate'));
+      const receiptTarget = candidates.find(({ text }) => text.includes('download payment receipt') || text.includes('download receipt') || text.includes('receipt'));
+      const target = certificateTarget || receiptTarget;
+      const kind = certificateTarget ? 'certificate' : receiptTarget ? 'receipt' : null;
+      if (!target || !kind) {
+        return null;
       }
 
-      target.scrollIntoView({ block: 'center', inline: 'nearest' });
-      target.click();
-      return true;
+      target.element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      target.element.click();
+      return kind;
     });
 
-    if (!clicked) {
+    const isExpectedArtifact = (filename: string | null | undefined, kind: 'certificate' | 'receipt') =>
+      kind === 'certificate'
+        ? this.isCertificateArtifact(filename)
+        : this.isReceiptArtifact(filename);
+
+    if (!clickedKind) {
       const downloadButton = await this.waitForFirstVisibleLocator([
+        () => page.locator('button').filter({ hasText: /^download certificate$/i }).first(),
+        () => page.locator('[role="button"]').filter({ hasText: /^download certificate$/i }).first(),
+        () => page.locator('a').filter({ hasText: /^download certificate$/i }).first(),
+        () => page.locator('button').filter({ hasText: /^download payment receipt$/i }).first(),
+        () => page.locator('[role="button"]').filter({ hasText: /^download payment receipt$/i }).first(),
+        () => page.locator('a').filter({ hasText: /^download payment receipt$/i }).first(),
         () => page.locator('button').filter({ hasText: /download/i }).first(),
         () => page.locator('[role="button"]').filter({ hasText: /download/i }).first(),
         () => page.locator('a').filter({ hasText: /download/i }).first(),
-      ], 'download button', 10000);
+      ], 'download action button', 10000);
+
+      const buttonText = ((await downloadButton.textContent()) || '').trim().toLowerCase();
+      const fallbackKind: 'certificate' | 'receipt' =
+        buttonText.includes('certificate') ? 'certificate' : 'receipt';
 
       const secondDownloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-      await this.clickLocator(downloadButton, 'Clicked download button');
+      await this.clickLocator(downloadButton, `Clicked download ${fallbackKind} button`);
       const fallbackDownload = await secondDownloadPromise;
 
       if (fallbackDownload) {
         const suggestedFilename = fallbackDownload.suggestedFilename();
         await fallbackDownload.path().catch(() => null);
-        return { success: true, filename: suggestedFilename || null };
+        return {
+          success: isExpectedArtifact(suggestedFilename, fallbackKind),
+          filename: suggestedFilename || null,
+          kind: fallbackKind,
+        };
       }
 
       const artifact = await this.waitForDownloadArtifact(beforeSnapshot, 20000);
-      return { success: Boolean(artifact), filename: artifact };
+      return {
+        success: isExpectedArtifact(artifact, fallbackKind),
+        filename: artifact,
+        kind: fallbackKind,
+      };
     }
 
     const download = await downloadPromise;
     if (download) {
       const suggestedFilename = download.suggestedFilename();
       await download.path().catch(() => null);
-      return { success: true, filename: suggestedFilename || null };
+      return {
+        success: isExpectedArtifact(suggestedFilename, clickedKind),
+        filename: suggestedFilename || null,
+        kind: clickedKind,
+      };
     }
 
     const artifact = await this.waitForDownloadArtifact(beforeSnapshot, 20000);
-    return { success: Boolean(artifact), filename: artifact };
+    return {
+      success: isExpectedArtifact(artifact, clickedKind),
+      filename: artifact,
+      kind: clickedKind,
+    };
   }
 
   /**
@@ -2585,8 +2758,21 @@ export class DariAffectionPlanAgent {
     ], 'top header Services menu', 15000);
 
     console.log('🖱️  Clicking Services menu in the top header...');
-    await this.clickLocator(servicesMenu, 'Services menu clicked');
-    await this.waitForServicesLandingPage(20000);
+    try {
+      await this.clickLocator(servicesMenu, 'Services menu clicked');
+      await this.waitForServicesLandingPage(20000);
+    } catch (error) {
+      console.log('⚠️  Header Services click was blocked or unstable.');
+      console.log('   Falling back to direct navigation to the Services listing...\n');
+
+      const servicesUrl = this.getServicesListingUrl();
+      await page.goto(servicesUrl, { waitUntil: 'domcontentloaded' });
+      await this.waitForDocumentReady(20000);
+      await this.acceptCookiesIfPresent();
+      await this.waitForServicesLandingPage(20000);
+
+      console.log(`✓ Recovered by navigating directly to: ${servicesUrl}\n`);
+    }
   }
 
   /**
@@ -2823,6 +3009,7 @@ export class DariAffectionPlanAgent {
     console.log('💰 STEP 14: Check Wallet Balance vs Payment Amount');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
+    await this.requireExclusiveDariWalletSelection(plot.plotNumber);
     const verifiedPaymentState = await this.getPaymentPageSnapshot(plot.plotNumber);
     const walletBalanceText = verifiedPaymentState.balanceText;
     const paymentAmountText = verifiedPaymentState.paymentDetailsText;
@@ -2968,7 +3155,7 @@ export class DariAffectionPlanAgent {
 
     if (downloadResult.success) {
       this.upsertPersistedApplication(plot.plotNumber, applicationId, true, downloadResult.filename);
-      console.log('✅ CERTIFICATE DOWNLOAD VERIFIED!');
+      console.log(`✅ ${downloadResult.kind === 'receipt' ? 'PAYMENT RECEIPT' : 'CERTIFICATE'} DOWNLOAD VERIFIED!`);
       if (downloadResult.filename) {
         console.log(`   File: ${downloadResult.filename}`);
       }
@@ -3007,12 +3194,17 @@ export class DariAffectionPlanAgent {
     console.log('🔄 Navigating Back to Service Page');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-    console.log('🖱️  Clicking on Services menu...');
-    await this.navigateToServicesMenu();
+    const page = this.getPage();
+    const servicesUrl = this.getServicesListingUrl();
 
-    console.log('🖱️  Clicking on service again...');
+    console.log(`🌐 Returning to services listing directly: ${servicesUrl}`);
+    await page.goto(servicesUrl, { waitUntil: 'domcontentloaded' });
+    await this.waitForDocumentReady(20000);
+    await this.acceptCookiesIfPresent();
+    await this.waitForServicesLandingPage(20000);
+
+    console.log('🖱️  Re-opening configured service from the Services page...');
     await this.selectAffectionPlanService();
-
     await this.verifyAffectionPlanPage();
 
     console.log('✅ Back on service page, ready for next plot\n');
@@ -3284,11 +3476,14 @@ export class DariAffectionPlanAgent {
         } catch (plotError) {
           const errorMessage = plotError instanceof Error ? plotError.message : String(plotError);
 
-          // Check if this is a batch validation error (insufficient balance for ALL plots)
-          // If so, we should stop the entire workflow, not continue to next plot
+          // Stop the entire workflow for any payment-critical failure.
           if (errorMessage.includes('Insufficient balance for batch') ||
-              errorMessage.includes('need') && errorMessage.includes('for') && errorMessage.includes('plots')) {
-            console.error(`\n❌ CRITICAL: Batch payment validation failed!`);
+              errorMessage.includes('need') && errorMessage.includes('for') && errorMessage.includes('plots') ||
+              errorMessage.includes('DARI wallet') ||
+              errorMessage.includes('Debit/credit card') ||
+              errorMessage.includes('Abu Dhabi Pay') ||
+              errorMessage.includes('Pay now')) {
+            console.error(`\n❌ CRITICAL: Payment validation failed!`);
             console.error(`   ${errorMessage}\n`);
 
             // Re-throw to stop the entire workflow
@@ -3321,8 +3516,9 @@ export class DariAffectionPlanAgent {
           try {
             await this.navigateBackToServicePage();
           } catch (navError) {
-            console.error(`⚠️  Navigation error: ${navError instanceof Error ? navError.message : String(navError)}`);
-            console.log('   Will attempt to continue...\n');
+            console.error(`❌ CRITICAL: Could not return to the service page for the next plot: ${navError instanceof Error ? navError.message : String(navError)}`);
+            console.log('   Stopping the workflow to avoid operating from the wrong page.\n');
+            throw navError;
           }
         }
       }
