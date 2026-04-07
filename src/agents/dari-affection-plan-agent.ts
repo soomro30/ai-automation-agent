@@ -484,9 +484,21 @@ export class DariAffectionPlanAgent {
     }
 
     const targetTokens = this.getMeaningfulTokens(target);
+    const candidateTokens = this.getMeaningfulTokens(candidate);
+
     for (const token of targetTokens) {
       if (candidateNormalized.includes(token)) {
         score += 20;
+        continue;
+      }
+
+      const partialTokenMatch = candidateTokens.some((candidateToken) =>
+        candidateToken.startsWith(token.slice(0, Math.min(token.length, candidateToken.length))) ||
+        token.startsWith(candidateToken.slice(0, Math.min(candidateToken.length, token.length)))
+      );
+
+      if (partialTokenMatch && token.length >= 4) {
+        score += 10;
       }
     }
 
@@ -784,29 +796,59 @@ export class DariAffectionPlanAgent {
     return fallback.chosenText;
   }
 
-  private async waitForSwitchedAccountInHeader(targetAccountName: string, timeoutMs: number = 30000): Promise<string> {
+  private async waitForSwitchedAccountInHeader(targetAccountName: string, timeoutMs: number = 45000): Promise<string> {
     const page = this.stagehand!.page;
     const deadline = Date.now() + timeoutMs;
     let lastHeaderSummary = '';
 
     while (Date.now() < deadline) {
-      await this.waitForDocumentReady(12000);
+      try {
+        await this.waitForDocumentReady(12000);
+      } catch {
+        // Account switching can navigate through transient states; keep polling.
+      }
+
       await this.acceptCookiesIfPresent();
 
       const headerSummary = await page.evaluate(() => {
-        const header = document.querySelector('header, [role="banner"]') || document.body;
-        const controls = Array.from(header.querySelectorAll('a, button, [role="button"], span, div'))
-          .map((element) => (element.textContent || '').replace(/\s+/g, ' ').trim())
-          .filter((text) => text.length >= 3);
+        const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+        const isVisible = (element: Element | null): element is HTMLElement => {
+          if (!(element instanceof HTMLElement)) {
+            return false;
+          }
 
-        return Array.from(new Set(controls)).join(' | ');
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return rect.width > 20 &&
+            rect.height > 16 &&
+            style.visibility !== 'hidden' &&
+            style.display !== 'none';
+        };
+
+        const header = document.querySelector('header, [role="banner"]') || document.body;
+        const candidates = Array.from(header.querySelectorAll('a, button, [role="button"], span, div'))
+          .filter((element) => isVisible(element))
+          .map((element) => {
+            const rect = (element as HTMLElement).getBoundingClientRect();
+            return {
+              text: normalize((element.textContent || '')),
+              left: rect.left,
+              width: rect.width,
+            };
+          })
+          .filter((item) => item.text.length >= 3)
+          .filter((item) => item.left > window.innerWidth * 0.55 || /employee|personal account|verify document/i.test(item.text));
+
+        return Array.from(new Set(candidates.map((item) => item.text))).join(' | ');
       });
 
       lastHeaderSummary = headerSummary;
       const score = this.scoreTextMatch(headerSummary, targetAccountName);
       const hasLoginButton = /(^|\|)\s*LOGIN\s*(\||$)/i.test(headerSummary);
+      const looksCorporate = /employee|license|verify document/i.test(headerSummary);
+      const stillLooksPersonal = /personal account|abdulqader/i.test(headerSummary);
 
-      if (score >= 40 && !hasLoginButton) {
+      if (!hasLoginButton && !stillLooksPersonal && (score >= 20 || looksCorporate)) {
         return headerSummary;
       }
 
@@ -814,6 +856,32 @@ export class DariAffectionPlanAgent {
     }
 
     throw new Error(`Account switch could not be verified in header. Last header snapshot: ${lastHeaderSummary}`);
+  }
+
+  private async waitForCorporateSessionFallback(timeoutMs: number = 15000): Promise<string | null> {
+    const page = this.stagehand!.page;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      try {
+        await this.waitForDocumentReady(10000);
+      } catch {
+        // Keep polling during transitional states.
+      }
+
+      const snapshot = await page.evaluate(() => {
+        const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+        return text.slice(0, 1200);
+      });
+
+      if (/employee|verify document/i.test(snapshot) && !/personal account|abdulqader/i.test(snapshot)) {
+        return snapshot;
+      }
+
+      await sleep(1000);
+    }
+
+    return null;
   }
 
   private getPage(): any {
@@ -2476,7 +2544,22 @@ export class DariAffectionPlanAgent {
     console.log(`✓ Account option clicked: ${matchedAccount}\n`);
 
     console.log('⏳ Waiting for Dari to reload with the switched account...');
-    const headerSummary = await this.waitForSwitchedAccountInHeader(this.config.accountSwitching.targetAccountName, 30000);
+    let headerSummary: string;
+
+    try {
+      headerSummary = await this.waitForSwitchedAccountInHeader(matchedAccount, 45000);
+    } catch (error) {
+      console.log('⚠️  Strict account-header verification did not complete in time.');
+      console.log('   Attempting relaxed corporate-session confirmation...\n');
+
+      const fallbackSummary = await this.waitForCorporateSessionFallback(15000);
+      if (!fallbackSummary) {
+        throw error;
+      }
+
+      headerSummary = fallbackSummary;
+      console.log('✓ Corporate session confirmed using fallback verification\n');
+    }
 
     console.log('✓ Page reloaded with switched account');
     console.log(`📍 Header snapshot: ${headerSummary}`);

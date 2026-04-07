@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDownloads: () => ipcRenderer.invoke('open-downloads'),
   getDownloadsPath: () => ipcRenderer.invoke('get-downloads-path'),
   countPlotsInExcel: (excelFilePath, plotColumnIndex) => ipcRenderer.invoke('count-plots-in-excel', excelFilePath, plotColumnIndex),
+  copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
+  openLogFile: (logFilePath) => ipcRenderer.invoke('open-log-file', logFilePath),
 
   onAgentOutput: (callback) => {
     ipcRenderer.on('agent-output', (event, data) => callback(data));

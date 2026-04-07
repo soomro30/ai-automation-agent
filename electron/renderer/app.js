@@ -2,6 +2,7 @@ let currentAgent = null;
 let selectedFile = null;
 let settings = {};
 let consoleLogBuffer = [];
+let currentLogFilePath = null;
 
 const views = {
   selection: document.getElementById('agentSelectionView'),
@@ -35,6 +36,7 @@ function setupEventListeners() {
   document.getElementById('stopAgentBtn').addEventListener('click', stopAgent);
   document.getElementById('openDownloadsBtn').addEventListener('click', openDownloads);
   document.getElementById('openDownloadsFolderBtn').addEventListener('click', openDownloads);
+  document.getElementById('openLogFileBtn').addEventListener('click', openLogFile);
   document.getElementById('copyFinishedLogsBtn').addEventListener('click', copyConsoleLogs);
   document.getElementById('runAnotherBtn').addEventListener('click', () => {
     showView('selection');
@@ -75,8 +77,16 @@ function setupEventListeners() {
           pathElement.textContent = data.downloadPath;
         }
       }
+      if (data.logFilePath) {
+        currentLogFilePath = data.logFilePath;
+        updateLogPathDisplay(data.logFilePath);
+      }
     } else {
       setRunningStatus('error', `Agent failed with exit code ${data.code}. Logs are preserved below for copying.`);
+      if (data.logFilePath) {
+        currentLogFilePath = data.logFilePath;
+        updateLogPathDisplay(data.logFilePath);
+      }
       alert(`Agent failed with exit code ${data.code}. Check console output for details.`);
       showView('running');
     }
@@ -223,6 +233,9 @@ async function runAgent() {
   document.getElementById('runningAgentTitle').textContent = runningTitle;
 
   clearConsole();
+  currentLogFilePath = null;
+  document.getElementById('logInfo').classList.add('hidden');
+  document.getElementById('logPath').textContent = '';
 
   const downloadPath = await window.electronAPI.getDownloadsPath();
   const timestamp = new Date().toISOString().split('T')[0];
@@ -232,6 +245,11 @@ async function runAgent() {
   document.getElementById('downloadInfo').classList.remove('hidden');
 
   const result = await window.electronAPI.runAgent(currentAgent, selectedFile);
+
+  if (result.logFilePath) {
+    currentLogFilePath = result.logFilePath;
+    updateLogPathDisplay(result.logFilePath);
+  }
 
   if (!result.success) {
     setRunningStatus('error', `Agent could not start: ${result.error}`);
@@ -251,6 +269,15 @@ async function stopAgent() {
 
 function openDownloads() {
   window.electronAPI.openDownloads();
+}
+
+function openLogFile() {
+  if (!currentLogFilePath) {
+    alert('No log file is available yet.');
+    return;
+  }
+
+  window.electronAPI.openLogFile(currentLogFilePath);
 }
 
 function appendConsoleOutput(text, type = 'info') {
@@ -278,7 +305,7 @@ async function copyConsoleLogs(event) {
   }
 
   try {
-    await navigator.clipboard.writeText(logText);
+    await window.electronAPI.copyToClipboard(logText);
     const originalLabel = copyButton.textContent;
     copyButton.textContent = 'Copied';
     setTimeout(() => {
@@ -287,6 +314,11 @@ async function copyConsoleLogs(event) {
   } catch (error) {
     alert(`Unable to copy logs automatically. You can still select and copy them manually.\n\n${error}`);
   }
+}
+
+function updateLogPathDisplay(logFilePath) {
+  document.getElementById('logPath').textContent = logFilePath;
+  document.getElementById('logInfo').classList.remove('hidden');
 }
 
 function setRunningStatus(status, message) {

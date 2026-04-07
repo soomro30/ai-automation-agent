@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -6,11 +6,13 @@ const XLSX = require('xlsx');
 
 let mainWindow;
 let agentProcess = null;
+let currentLogFilePath = null;
 
 app.setName('imkan-agents');
 
 const APP_DATA_PATH = app.getPath('userData');
 const DOWNLOADS_PATH = path.join(APP_DATA_PATH, 'Downloads');
+const LOGS_PATH = path.join(APP_DATA_PATH, 'Logs');
 const SETTINGS_FILE = path.join(APP_DATA_PATH, 'settings.json');
 
 console.log('App data path:', APP_DATA_PATH);
@@ -69,6 +71,7 @@ app.on('window-all-closed', () => {
 function ensureDirectories() {
   const dirs = [
     DOWNLOADS_PATH,
+    LOGS_PATH,
     path.join(DOWNLOADS_PATH, 'TitleDeeds'),
     path.join(DOWNLOADS_PATH, 'AffectionPlans'),
   ];
@@ -195,6 +198,20 @@ function loadOrCreateSettings() {
   }
 }
 
+function appendAgentLog(text) {
+  if (currentLogFilePath) {
+    try {
+      fs.appendFileSync(currentLogFilePath, text, 'utf-8');
+    } catch (error) {
+      console.error('Error writing agent log file:', error);
+    }
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('agent-output', text);
+  }
+}
+
 ipcMain.handle('select-excel-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -301,6 +318,11 @@ ipcMain.handle('run-agent', async (event, agentId, excelFilePath) => {
     }
 
     const envFilePath = path.join(APP_DATA_PATH, '.env');
+    currentLogFilePath = path.join(
+      LOGS_PATH,
+      `${agentId}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
+    );
+    fs.writeFileSync(currentLogFilePath, '', 'utf-8');
 
     // Set working directory - use app data path in production for file access
     const workingDir = isDev ? path.join(__dirname, '..') : APP_DATA_PATH;
@@ -331,28 +353,28 @@ ipcMain.handle('run-agent', async (event, agentId, excelFilePath) => {
     console.log('Config path:', configPath);
     console.log('Env file path:', envFilePath);
 
-    // Send initial message to UI
-    mainWindow.webContents.send('agent-output', `Starting ${agentId} agent...\n`);
-    mainWindow.webContents.send('agent-output', `Script path: ${agentScriptPath}\n`);
-    mainWindow.webContents.send('agent-output', `Working directory: ${workingDir}\n`);
+    appendAgentLog(`Starting ${agentId} agent...\n`);
+    appendAgentLog(`Script path: ${agentScriptPath}\n`);
+    appendAgentLog(`Working directory: ${workingDir}\n`);
+    appendAgentLog(`Log file: ${currentLogFilePath}\n`);
 
     agentProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('Agent output:', output);
-      mainWindow.webContents.send('agent-output', output);
+      appendAgentLog(output);
     });
 
     agentProcess.stderr.on('data', (data) => {
       const error = data.toString();
       console.error('Agent error:', error);
-      mainWindow.webContents.send('agent-output', `[ERROR] ${error}`);
+      appendAgentLog(`[ERROR] ${error}`);
       mainWindow.webContents.send('agent-error', error);
     });
 
     agentProcess.on('error', (err) => {
       console.error('Failed to start agent process:', err);
       const errorMsg = `Failed to start agent: ${err.message}`;
-      mainWindow.webContents.send('agent-output', `[ERROR] ${errorMsg}\n`);
+      appendAgentLog(`[ERROR] ${errorMsg}\n`);
       mainWindow.webContents.send('agent-error', errorMsg);
       agentProcess = null;
     });
@@ -362,7 +384,7 @@ ipcMain.handle('run-agent', async (event, agentId, excelFilePath) => {
       const success = code === 0;
 
       if (code !== 0) {
-        mainWindow.webContents.send('agent-output', `\n[PROCESS EXITED] Code: ${code}\n`);
+        appendAgentLog(`\n[PROCESS EXITED] Code: ${code}\n`);
       }
 
       agentProcess = null;
@@ -370,7 +392,9 @@ ipcMain.handle('run-agent', async (event, agentId, excelFilePath) => {
         code,
         success,
         downloadPath: downloadDir,
+        logFilePath: currentLogFilePath,
       });
+      currentLogFilePath = null;
 
       try {
         fs.unlinkSync(tempExcelPath);
@@ -380,7 +404,7 @@ ipcMain.handle('run-agent', async (event, agentId, excelFilePath) => {
       }
     });
 
-    return { success: true, downloadPath: downloadDir };
+    return { success: true, downloadPath: downloadDir, logFilePath: currentLogFilePath };
   } catch (error) {
     console.error('Error starting agent:', error);
     agentProcess = null;
@@ -398,11 +422,25 @@ ipcMain.handle('stop-agent', () => {
 });
 
 ipcMain.handle('open-downloads', () => {
-  require('electron').shell.openPath(DOWNLOADS_PATH);
+  shell.openPath(DOWNLOADS_PATH);
 });
 
 ipcMain.handle('get-downloads-path', () => {
   return DOWNLOADS_PATH;
+});
+
+ipcMain.handle('copy-to-clipboard', (event, text) => {
+  clipboard.writeText(text || '');
+  return { success: true };
+});
+
+ipcMain.handle('open-log-file', (event, logFilePath) => {
+  if (!logFilePath) {
+    return { success: false, error: 'No log file path provided' };
+  }
+
+  shell.showItemInFolder(logFilePath);
+  return { success: true };
 });
 
 // Count plots in Excel file
