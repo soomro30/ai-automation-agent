@@ -6,6 +6,7 @@ import {
 } from '../config/dari-affection-plan-config.js';
 import { loadElectronConfig } from '../electron-bridge.js';
 import { sendEmailNotification, type EmailSummary } from '../utils/email-service.js';
+import { getStagehandLocalBrowserConfig } from '../utils/local-browser.js';
 import XLSX from 'xlsx';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -128,12 +129,22 @@ export class DariAffectionPlanAgent {
     const downloadPath = process.env.DOWNLOAD_PATH || join(process.cwd(), 'downloads', 'affection-plans');
     mkdirSync(downloadPath, { recursive: true });
     this.downloadPath = downloadPath;
+    const localBrowserConfig = getStagehandLocalBrowserConfig(downloadPath);
+
+    if (localBrowserConfig.detectedBrowserPath) {
+      console.log(`🌐 Using local browser executable: ${localBrowserConfig.detectedBrowserName}`);
+      console.log(`   Path: ${localBrowserConfig.detectedBrowserPath}\n`);
+    } else {
+      console.log('⚠️  No system browser executable was auto-detected.');
+      console.log('   Stagehand will fall back to its default local browser resolution.\n');
+    }
 
     this.stagehand = new Stagehand({
       env: 'LOCAL',
       verbose: 1,
       enableCaching: false,
       domSettleTimeoutMs: this.config.waitTimes.domSettle,
+      localBrowserLaunchOptions: localBrowserConfig.launchOptions,
       // Note: Uses Stagehand's built-in free model (gpt-4.1-mini)
       // No OpenAI API key required
     });

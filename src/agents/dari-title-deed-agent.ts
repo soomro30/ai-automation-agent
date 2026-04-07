@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { retry, sleep } from '../utils/retry.js';
 import { ExcelReader, PlotData } from '../utils/excel-reader.js';
 import { loadElectronConfig } from '../electron-bridge.js';
+import { getStagehandLocalBrowserConfig } from '../utils/local-browser.js';
 
 interface ApplicationRecord {
   plotNumber: string;
@@ -34,12 +35,22 @@ export class DariTitleDeedAgent {
 
   async initialize(): Promise<void> {
     console.log('Initializing Dari Title Deed Agent...\n');
+    const localBrowserConfig = getStagehandLocalBrowserConfig();
+
+    if (localBrowserConfig.detectedBrowserPath) {
+      console.log(`🌐 Using local browser executable: ${localBrowserConfig.detectedBrowserName}`);
+      console.log(`   Path: ${localBrowserConfig.detectedBrowserPath}\n`);
+    } else {
+      console.log('⚠️  No system browser executable was auto-detected.');
+      console.log('   Stagehand will fall back to its default local browser resolution.\n');
+    }
 
     this.stagehand = new Stagehand({
       env: 'LOCAL',
       verbose: 1,
       enableCaching: false,
       domSettleTimeoutMs: 3000,
+      localBrowserLaunchOptions: localBrowserConfig.launchOptions,
     });
 
     await this.stagehand.init();
